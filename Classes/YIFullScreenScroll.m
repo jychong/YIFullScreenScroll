@@ -12,7 +12,9 @@
 
 #define IS_PORTRAIT         UIInterfaceOrientationIsPortrait([UIApplication sharedApplication].statusBarOrientation)
 
-#define MAX_SHIFT_PER_SCROLL    10  // used when _shouldHideUIBarsGradually=YES
+#define MAX_SHIFT_PER_SCROLL    5  // used when _shouldHideUIBarsGradually=YES
+#define kLayoutFinishUpDelay (0.5f)
+#define kLayoutFinishUpAnimationDuration (0.5f)
 
 static char __fullScreenScrollContext;
 
@@ -34,17 +36,18 @@ static char __fullScreenScrollContext;
     UIImageView*        _customToolbarBackground;
     
     UIEdgeInsets        _defaultScrollIndicatorInsets;
-    
+	UIEdgeInsets        _defaultContentInsets;
+	
     CGFloat             _defaultNavBarTop;
-    
+	
     BOOL _isObservingNavBar;
     BOOL _isObservingToolbar;
     
     BOOL _ignoresTranslucent;
 }
 
-#pragma mark -
 
+#pragma mark -
 #pragma mark Init/Dealloc
 
 - (id)initWithViewController:(UIViewController*)viewController
@@ -60,8 +63,8 @@ static char __fullScreenScrollContext;
           ignoresTranslucent:(BOOL)ignoresTranslucent
 {
     self = [super init];
-    if (self) {
-        
+    if (self)
+	{
         _viewController = viewController;
         _ignoresTranslucent = ignoresTranslucent;
         
@@ -85,104 +88,108 @@ static char __fullScreenScrollContext;
         _layoutingUIBarsEnabled = YES;
         
         self.scrollView = scrollView;
-        
     }
     return self;
 }
 
 - (void)dealloc
 {
-    if (self.isViewVisible) {
+    if (self.isViewVisible)
         self.enabled = NO;
-    }
-    
+	
     self.scrollView = nil;
 }
 
-#pragma mark -
 
-#pragma mark Accessors
+#pragma mark -
+#pragma mark Modifiers
 
 - (void)setScrollView:(UIScrollView *)scrollView
 {
-    if (scrollView != _scrollView) {
-        
-        if (_scrollView) {
-            [_scrollView removeObserver:self forKeyPath:@"contentOffset" context:&__fullScreenScrollContext];
-            
-            [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationWillEnterForegroundNotification object:nil];
-        }
-        
-        _scrollView = scrollView;
-        
-        if (_scrollView) {
-            [_scrollView addObserver:self forKeyPath:@"contentOffset" options:(NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld) context:&__fullScreenScrollContext];
-            
-            //
-            // observe willEnterForeground to properly set both navBar & tabBar
-            // (fixes https://github.com/inamiy/YIFullScreenScroll/issues/5)
-            //
-            [[NSNotificationCenter defaultCenter] addObserver:self
-                                                     selector:@selector(onWillEnterForegroundNotification:)
-                                                         name:UIApplicationWillEnterForegroundNotification
-                                                       object:nil];
-            
-            _defaultScrollIndicatorInsets = _scrollView.scrollIndicatorInsets;
-        }
-        
-    }
+    if (scrollView == _scrollView)
+		return;
+	
+	if (_scrollView != nil)
+	{
+		[_scrollView removeObserver:self forKeyPath:@"contentOffset" context:&__fullScreenScrollContext];
+		
+		[[NSNotificationCenter defaultCenter] removeObserver:self
+														name:UIApplicationWillEnterForegroundNotification
+													  object:nil];
+	}
+	_scrollView = scrollView;
+	
+	if (_scrollView != nil)
+	{
+		[_scrollView addObserver:self forKeyPath:@"contentOffset"
+						 options:(NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld)
+						 context:&__fullScreenScrollContext];
+		
+		//
+		// observe willEnterForeground to properly set both navBar & tabBar
+		// (fixes https://github.com/inamiy/YIFullScreenScroll/issues/5)
+		//
+		[[NSNotificationCenter defaultCenter] addObserver:self
+												 selector:@selector(onWillEnterForegroundNotification:)
+													 name:UIApplicationWillEnterForegroundNotification
+												   object:nil];
+	}
 }
 
 - (void)setEnabled:(BOOL)enabled
 {
-    if (enabled != _enabled) {
-        
-        if (enabled) {
-            [self _setupUIBarBackgrounds];
-            [self _layoutContainerViewExpanding:YES];
-            
-            // set YES after setup finished so that observing contentOffset will be safely handled
-            _enabled = YES;
-        }
-        else {
-            // show before setting _enabled=NO
-            [self showUIBarsAnimated:NO];
-            
-            // set NO before teardown starts so that observing contentOffset will be safely handled
-            _enabled = NO;
-            
-            [self _teardownUIBarBackgrounds];
-            [self _layoutContainerViewExpanding:NO];
-        }
-        
-    }
+    if (enabled == _enabled)
+		return;
+	
+	if (enabled)
+	{
+		[self _setupUIBarBackgrounds];
+		[self _layoutContainerViewExpanding:YES];
+		
+		// set YES after setup finished so that observing contentOffset will be safely handled
+		_enabled = YES;
+	}
+	else
+	{
+		// show before setting _enabled=NO
+		[self showUIBarsAnimated:NO];
+		
+		// set NO before teardown starts so that observing contentOffset will be safely handled
+		_enabled = NO;
+		
+		[self _teardownUIBarBackgrounds];
+		[self _layoutContainerViewExpanding:NO];
+	}
 }
 
-#pragma mark -
 
+#pragma mark -
 #pragma mark Public
 
 - (void)viewWillAppear:(BOOL)animated
 {
     self.isViewVisible = NO;
     
-    if (self.enabled) {
-        
-        // if no modal
-        if (!_viewController.presentedViewController) {
-            [self _setupUIBarBackgrounds];
-            [self showUIBarsAnimated:NO];
-        }
-    }
+    if (!self.enabled)
+		return;
+	
+	// if no modal
+	if (!_viewController.presentedViewController)
+	{
+		[self _setupUIBarBackgrounds];
+		[self showUIBarsAnimated:NO];
+	}
+	_defaultScrollIndicatorInsets = _scrollView.scrollIndicatorInsets;
+	_defaultContentInsets = _scrollView.contentInset;
 }
 
 - (void)viewDidAppear:(BOOL)animated
 {
-    if (self.enabled) {
+    if (self.enabled)
+	{
         // NOTE: required for tabBarController layouting
         [self _layoutContainerViewExpanding:YES];
     }
-    
     self.isViewVisible = YES;   // set YES after layouting
 }
 
@@ -190,21 +197,23 @@ static char __fullScreenScrollContext;
 {
     self.isViewVisible = NO;
     
-    if (self.enabled) {
-        
-        // if no modal
-        if (!_viewController.presentedViewController) {
-            [self _teardownUIBarBackgrounds];
-            [self showUIBarsAnimated:NO];
-        }
-    }
+    if (!self.enabled)
+		return;
+	
+	// if no modal
+	if (!_viewController.presentedViewController)
+	{
+		[self _teardownUIBarBackgrounds];
+		[self showUIBarsAnimated:NO];
+	}
 }
 
 - (void)viewDidDisappear:(BOOL)animated
 {
     self.isViewVisible = NO;
     
-    if (self.enabled) {
+    if (self.enabled)
+	{
         [self _layoutContainerViewExpanding:NO];
     }
 }
@@ -225,8 +234,8 @@ static char __fullScreenScrollContext;
     
     self.isShowingUIBars = YES;
     
-    if (animated) {
-        
+    if (animated)
+	{
         __weak typeof(self) weakSelf = self;
         
         [UIView animateWithDuration:0.1 animations:^{
@@ -237,7 +246,6 @@ static char __fullScreenScrollContext;
         } completion:^(BOOL finished) {
             
             weakSelf.isShowingUIBars = NO;
-            
             if (completion) {
                 completion(finished);
             }
@@ -248,11 +256,10 @@ static char __fullScreenScrollContext;
         [self _layoutUIBarsWithDeltaY:-50];
         self.isShowingUIBars = NO;
     }
-    
 }
 
-#pragma mark -
 
+#pragma mark -
 #pragma mark KVO
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
@@ -280,12 +287,16 @@ static char __fullScreenScrollContext;
             CGFloat deltaY = newPoint.y - oldPoint.y;
             
             [self _layoutUIBarsWithDeltaY:deltaY];
-            
+         
+			[NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(_layoutFinishUp) object:nil];
+			[self performSelector:@selector(_layoutFinishUp) withObject:nil afterDelay:kLayoutFinishUpDelay];
         }
         
     }
 }
 
+
+#pragma mark -
 #pragma mark Notifications
 
 - (void)onWillEnterForegroundNotification:(NSNotification*)notification
@@ -293,8 +304,8 @@ static char __fullScreenScrollContext;
     [self showUIBarsAnimated:NO];
 }
 
-#pragma mark -
 
+#pragma mark -
 #pragma mark UIBars
 
 - (UINavigationController*)navigationController
@@ -352,9 +363,153 @@ static char __fullScreenScrollContext;
     return tabBar && tabBar.superview && !tabBar.hidden && (tabBar.left == 0);
 }
 
-#pragma mark -
 
+#pragma mark -
+#pragma mark Layout Helpers
+
+- (CGFloat)toolbarSuperviewHeight
+{
+	UIToolbar *toolbar = self.toolbar;
+	
+	CGFloat height = 0;
+	if ([toolbar.superview.superview isKindOfClass:[UIWindow class]])
+		height = IS_PORTRAIT ? toolbar.superview.height : toolbar.superview.width;
+	else
+		height = toolbar.superview.height;
+	
+	return height;
+}
+
+- (CGFloat)tabBarSuperviewHeight
+{
+	UITabBar *tabBar = self.tabBar;
+	
+	CGFloat height = 0;
+	if ([tabBar.superview.superview isKindOfClass:[UIWindow class]])
+		height = IS_PORTRAIT ? tabBar.superview.height : tabBar.superview.width;
+	else
+		height = tabBar.superview.height;
+	
+	return height;
+}
+
+- (BOOL)_isNavigationBarFullyHidden
+{
+	UINavigationBar *navBar = self.navigationBar;
+	return navBar.top == _defaultNavBarTop - navBar.height;
+}
+
+- (BOOL)_isNavigationBarFullyShown
+{
+	return self.navigationBar.top == _defaultNavBarTop;
+}
+
+- (BOOL)_shouldHideNavigationBar
+{
+	UINavigationBar *navBar = self.navigationBar;
+
+	return navBar.bottom < (_defaultNavBarTop + navBar.height * 0.5f);
+}
+
+- (void)_layoutFinishUp
+{
+	if ([self _isNavigationBarFullyHidden] || [self _isNavigationBarFullyShown])
+		return;
+
+	__weak typeof(self) weakSelf = self;
+	void (^_blockAnimation)(void) = nil;
+	void (^_blockCompletion)(BOOL) = ^(BOOL finished) {
+		weakSelf.isShowingUIBars = NO;
+	};
+
+	if ([self _shouldHideNavigationBar])
+	{
+		_blockAnimation = ^() {
+			[self _layoutUIBarsExpand];
+		};
+	}
+	else
+	{
+		_blockAnimation = ^() {
+			[self _layoutUIBarsRestoreDefault];
+		};
+	}
+	self.isShowingUIBars = YES;
+
+	[UIView animateWithDuration:kLayoutFinishUpAnimationDuration animations:_blockAnimation completion:_blockCompletion];
+}
+
+
+#pragma mark -
 #pragma mark Layout
+
+- (void)_layoutUIBarsExpand
+{
+    if (!self.enabled) return;
+    if (!self.layoutingUIBarsEnabled) return;
+
+	UIScrollView* scrollView = self.scrollView;
+	
+	// content inset
+	scrollView.contentInset = UIEdgeInsetsZero;
+	
+	// scrollIndicatorInsets
+	scrollView.scrollIndicatorInsets = UIEdgeInsetsZero;
+	
+	// navbar
+	if (self.isNavigationBarExisting)
+	{
+		UINavigationBar* navBar = self.navigationBar;
+		navBar.top = _defaultNavBarTop - navBar.height;
+		//insets.top = navBar.bottom - _defaultNavBarTop;
+	}
+	
+	// toolbar
+	if (self.isToolbarExisting)
+	{
+		UIToolbar* toolbar = self.toolbar;
+		toolbar.top = [self toolbarSuperviewHeight];
+	}
+	
+    // tabBar
+	CGFloat tabBarSuperviewHeight = 0.0f;
+	if (self.isTabBarExisting)
+	{
+		UITabBar* tabBar = self.tabBar;
+		tabBar.top = [self tabBarSuperviewHeight];
+	}
+}
+
+- (void)_layoutUIBarsRestoreDefault
+{
+    if (!self.enabled) return;
+    if (!self.layoutingUIBarsEnabled) return;
+	
+	UIScrollView* scrollView = self.scrollView;
+	scrollView.contentInset = _defaultContentInsets;
+	scrollView.scrollIndicatorInsets = _defaultScrollIndicatorInsets;
+	
+	// navbar
+	if (self.isNavigationBarExisting)
+	{
+		UINavigationBar* navBar = self.navigationBar;
+		navBar.top = _defaultNavBarTop;
+	}
+	
+    // toolbar
+	if (self.isToolbarExisting)
+	{
+		UIToolbar* toolbar = self.toolbar;
+		toolbar.bottom = [self toolbarSuperviewHeight];
+	}
+	
+    // tabBar
+	if (self.isTabBarExisting)
+	{
+		UITabBar* tabBar = self.tabBar;
+		tabBar.bottom = [self tabBarSuperviewHeight];
+	}
+}
 
 - (void)_layoutUIBarsWithDeltaY:(CGFloat)deltaY
 {
@@ -363,14 +518,16 @@ static char __fullScreenScrollContext;
     if (deltaY == 0.0) return;
     
     BOOL canLayoutUIBars = YES;
-    
     UIScrollView* scrollView = self.scrollView;
     
-    if (!self.isShowingUIBars) {
-        
-        BOOL isContentHeightTooShortToLayoutUIBars = (scrollView.contentSize.height+scrollView.contentInset.bottom < scrollView.frame.size.height);
-        BOOL isContentHeightTooShortToLimitShiftPerScroll = (scrollView.contentSize.height+scrollView.contentInset.bottom < scrollView.frame.size.height+100);
-        
+    if (!self.isShowingUIBars)
+	{
+		CGFloat contentHeight = scrollView.contentSize.height;
+		CGFloat scrollHeight = scrollView.frame.size.height;
+		
+        BOOL isContentHeightTooShortToLayoutUIBars = (contentHeight < scrollHeight);
+        BOOL isContentHeightTooShortToLimitShiftPerScroll = (contentHeight < scrollHeight);
+		
         // don't layout UIBars if content is too short (adjust scrollIndicators only)
         // (skip if _viewController.view is not visible yet, which tableView.contentSize.height is normally 0)
         if (self.isViewVisible && !self.shouldHideUIBarsWhenContentHeightIsTooShort && isContentHeightTooShortToLayoutUIBars) {
@@ -395,10 +552,6 @@ static char __fullScreenScrollContext;
         else if (offsetY-self.additionalOffsetYToStartHiding <= -scrollView.contentInset.top) {
             deltaY = -fabs(deltaY);
         }
-        // adjust deltaY if prev-scroll-position was up too high, but now it is not (= about to start hiding)
-        else if (offsetY-deltaY-self.additionalOffsetYToStartHiding <= -scrollView.contentInset.top) {
-            deltaY = offsetY-self.additionalOffsetYToStartHiding+scrollView.contentInset.top;
-        }
         
         // if there is enough scrolling distance, use MAX_SHIFT_PER_SCROLL for smoother shifting
         CGFloat maxShiftPerScroll = CGFLOAT_MAX;
@@ -415,6 +568,7 @@ static char __fullScreenScrollContext;
     }
     
     if (deltaY == 0.0) return;
+
     
     // return if user hasn't dragged but trying to hide UI-bars (e.g. orientation change)
     if (deltaY > 0 && !self.scrollView.isDragging && !self.shouldHideUIBarsWhenNotDragging) return;
@@ -432,15 +586,10 @@ static char __fullScreenScrollContext;
     UIToolbar* toolbar = self.toolbar;
     BOOL isToolbarExisting = self.isToolbarExisting;
     CGFloat toolbarSuperviewHeight = 0;
-    if (isToolbarExisting && _shouldHideToolbarOnScroll) {
+    if (isToolbarExisting && _shouldHideToolbarOnScroll)
+	{
         // NOTE: if navC.view.superview == window, navC.view won't change its frame and only rotate-transform
-        if ([toolbar.superview.superview isKindOfClass:[UIWindow class]]) {
-            toolbarSuperviewHeight = IS_PORTRAIT ? toolbar.superview.height : toolbar.superview.width;
-        }
-        else {
-            toolbarSuperviewHeight = toolbar.superview.height;
-        }
-        
+		toolbarSuperviewHeight = [self toolbarSuperviewHeight];
         if (canLayoutUIBars) {
             toolbar.top = MIN(MAX(toolbar.top+deltaY, toolbarSuperviewHeight-toolbar.height), toolbarSuperviewHeight);
         }
@@ -450,43 +599,37 @@ static char __fullScreenScrollContext;
     UITabBar* tabBar = self.tabBar;
     BOOL isTabBarExisting = self.isTabBarExisting;
     CGFloat tabBarSuperviewHeight = 0;
-    if (isTabBarExisting && _shouldHideTabBarOnScroll) {
-        if ([tabBar.superview.superview isKindOfClass:[UIWindow class]]) {
-            tabBarSuperviewHeight = IS_PORTRAIT ? tabBar.superview.height : tabBar.superview.width;
-        }
-        else {
-            tabBarSuperviewHeight = tabBar.superview.height;
-        }
-        
-        if (canLayoutUIBars) {
+    if (isTabBarExisting && _shouldHideTabBarOnScroll)
+	{
+		tabBarSuperviewHeight = [self tabBarSuperviewHeight];
+        if (canLayoutUIBars)
             tabBar.top = MIN(MAX(tabBar.top+deltaY, tabBarSuperviewHeight-tabBar.height), tabBarSuperviewHeight);
-        }
     }
     
-    if (self.enabled) {
-        
-        // scrollIndicatorInsets
-        UIEdgeInsets insets = scrollView.scrollIndicatorInsets;
-        if (isNavigationBarExisting && _shouldHideNavigationBarOnScroll) {
-            insets.top = navBar.bottom-_defaultNavBarTop;
-        }
-        insets.bottom = 0;
-        if (isToolbarExisting && _shouldHideToolbarOnScroll) {
-            insets.bottom += toolbarSuperviewHeight-toolbar.top;
-        }
-        if (isTabBarExisting && _shouldHideTabBarOnScroll) {
-            insets.bottom += tabBarSuperviewHeight-tabBar.top;
-        }
-        scrollView.scrollIndicatorInsets = insets;
-        
-        // delegation
-        // (ignore isViewVisible=NO when view is appearing/disappearing)
-        if (self.isViewVisible && canLayoutUIBars) {
-            if ([_delegate respondsToSelector:@selector(fullScreenScrollDidLayoutUIBars:)]) {
-                [_delegate fullScreenScrollDidLayoutUIBars:self];
-            }
-        }
-    }
+	// scrollIndicatorInsets
+	UIEdgeInsets insets = scrollView.scrollIndicatorInsets;
+	if (isNavigationBarExisting && _shouldHideNavigationBarOnScroll) {
+		insets.top = navBar.bottom-_defaultNavBarTop;
+	}
+	insets.bottom = 0;
+	if (isToolbarExisting && _shouldHideToolbarOnScroll) {
+		insets.bottom += toolbarSuperviewHeight-toolbar.top;
+	}
+	if (isTabBarExisting && _shouldHideTabBarOnScroll) {
+		insets.bottom += tabBarSuperviewHeight-tabBar.top;
+	}
+	scrollView.scrollIndicatorInsets = insets;
+	
+	// content inset
+	scrollView.contentInset = insets;
+	
+	// delegation
+	// (ignore isViewVisible=NO when view is appearing/disappearing)
+	if (self.isViewVisible && canLayoutUIBars) {
+		if ([_delegate respondsToSelector:@selector(fullScreenScrollDidLayoutUIBars:)]) {
+			[_delegate fullScreenScrollDidLayoutUIBars:self];
+		}
+	}
 }
 
 - (void)_layoutContainerViewExpanding:(BOOL)expanding
@@ -530,8 +673,8 @@ static char __fullScreenScrollContext;
     
 }
 
-#pragma mark -
 
+#pragma mark -
 #pragma mark Custom Background
 
 - (void)_setupUIBarBackgrounds
